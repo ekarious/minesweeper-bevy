@@ -20,6 +20,12 @@ impl Plugin for InputPlugin {
 pub enum PlayerActions {
 	Primary(Entity),
 	Secondary(Entity),
+	PrimaryDouble(Entity),
+}
+
+#[derive(Resource, Default)]
+struct ClickState {
+    last_left_click: Option<(Entity, f64)>,
 }
 
 fn mouse_input(
@@ -28,6 +34,8 @@ fn mouse_input(
     board: Res<Board>,
     camera: Single<(&Camera, &GlobalTransform), With<Camera2d>>,
     mut actions: MessageWriter<PlayerActions>,
+    time: Res<Time>,
+    mut click_state: ResMut<ClickState>,
 ) {
 	let primary = buttons.just_pressed(MouseButton::Left);
     let secondary = buttons.just_pressed(MouseButton::Right);
@@ -56,6 +64,18 @@ fn mouse_input(
     };
 
     if primary {
+    	let now = time.elapsed_secs_f64();
+
+	     if let Some((last_entity, last_time)) = click_state.last_left_click {
+         	if last_entity == entity && now - last_time < 0.3 {
+            	actions.write(PlayerActions::PrimaryDouble(entity));
+             	click_state.last_left_click = None;
+                return;
+          	}
+		}
+
+		click_state.last_left_click = Some((entity, now));
+
         actions.write(PlayerActions::Primary(entity));
     }
 
