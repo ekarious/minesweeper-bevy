@@ -59,7 +59,7 @@ impl Board {
         let center = Vec2::new(self.width as f32 - 1.0, self.height as f32 - 1.0)
             * step / 2.0;
 
-        Vec2::new(x as f32, y as f32) * step - center
+        Vec2::new(x as f32 * step - center.x, center.y - y as f32 * step)
     }
 
     pub fn world_to_grid(&self, position: Vec2) -> Option<(usize, usize)> {
@@ -68,8 +68,10 @@ impl Board {
         }
 
         let step = self.tile_size + self.spacing;
-        // Measure from the bottom-left edge of the first tile.
-        let local = position - self.grid_to_world(0, 0) + Vec2::splat(self.tile_size / 2.0);
+        // Measure right and down from the top-left edge of the first tile.
+        let origin = self.grid_to_world(0, 0);
+        let local = Vec2::new(position.x - origin.x, origin.y - position.y)
+            + Vec2::splat(self.tile_size / 2.0);
         if local.x < 0.0 || local.y < 0.0 {
             return None;
         }

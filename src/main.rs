@@ -8,6 +8,7 @@ mod ui;
 
 use game::GamePlugin;
 use board::BoardPlugin;
+use input::InputPlugin;
 
 fn main() {
     App::new()
@@ -22,5 +23,6 @@ fn main() {
 	    }))
 		.add_plugins(GamePlugin)
 		.add_plugins(BoardPlugin)
+		.add_plugins(InputPlugin)
 	    .run();
 }
