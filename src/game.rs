@@ -4,7 +4,8 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.init_state::<GameState>();
+        app.init_state::<GameState>()
+        .add_systems(Startup, setup_camera);
     }
 }
 
@@ -25,4 +26,8 @@ pub enum GameState {
     Paused,
     Win,
     GameOver,
+}
+
+fn setup_camera(mut commands: Commands) {
+    commands.spawn(Camera2d);
 }

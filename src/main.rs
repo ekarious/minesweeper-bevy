@@ -20,12 +20,7 @@ fn main() {
 	        }),
 	        ..default()
 	    }))
-		.add_systems(Startup, setup_camera)
 		.add_plugins(GamePlugin)
 		.add_plugins(BoardPlugin)
 	    .run();
-}
-
-fn setup_camera(mut commands: Commands) {
-	commands.spawn(Camera2d);
 }
