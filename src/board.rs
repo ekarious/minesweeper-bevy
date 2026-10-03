@@ -1,7 +1,9 @@
 use bevy::prelude::*;
 use rand::seq::SliceRandom;
+use bevy::bevy_ecs::system::Query;
 
 use crate::tile::{AdjacentMines, Flag, Mine, Tile, TileState};
+use crate::input::PlayerActions;
 
 pub struct BoardPlugin;
 
@@ -10,7 +12,8 @@ const MINE_DENSITY: usize = 15;
 impl Plugin for BoardPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Board::new(10, 10))
-            .add_systems(Startup, (setup_board, plant_mines, calculate_neighbours, debug_mines, debug_neighbours).chain());
+            .add_systems(Startup, (setup_board, plant_mines, calculate_neighbours, debug_mines, debug_neighbours).chain())
+            .add_systems(Update, handle_player_actions);
     }
 }
 
@@ -168,6 +171,138 @@ fn calculate_neighbours(
         }
     }
 }
+
+fn handle_player_actions(
+	mut commands: Commands,
+	mut actions: MessageReader<PlayerActions>,
+	tiles: Query<(&TileState, &AdjacentMines, Has<Mine>, Has<Flag>), With<Tile>>,
+) {
+    for action in actions.read() {
+        match action {
+            PlayerActions::Primary(entity) => {
+            	primary_action(*entity, &tiles);
+//                 let Ok((state, _, is_mine, is_flagged)) = tiles.get(*entity) else {
+//                 	continue;
+//                 };
+//
+//                 match state {
+//                 	TileState::Hidden if is_flagged => {
+//                  		// ne rien faire
+//                  	}
+//                  	TileState::Hidden if is_mine => {
+//                   		// Reveler les mines du jeu et game over
+//                   	}
+//                    	TileState::Hidden => {
+//                         // Reveal the tile.
+//                     }
+//                     TileState::Visible => {
+//                         // Handle a click on an already revealed tile.
+//                         // note: Generally nothing.
+//                     }
+//                 }
+            }
+            PlayerActions::PrimaryDouble(entity) => {
+            	primary_double_action(*entity, &tiles);
+//                 let Ok((state, adjacent_mines, _, _)) = tiles.get(*entity) else {
+//                 	continue;
+//                 };
+//
+//                 if matches!(state, TileState::Hidden) {
+//                 	continue;
+//                 }
+//
+//                 if adjacent_mines.0 == 0 {
+//                     continue;
+//                 }
+//
+//                 reveal_neighbors_tiles(*entity);
+            }
+            PlayerActions::Secondary(entity) => {
+            	secondary_action(*entity, &tiles, &mut commands);
+//                 // Inspect the tile, then add or remove its flag.
+//                 let Ok((state, _, _, is_flagged)) = tiles.get(*entity) else {
+//                 	continue;
+//                 };
+//
+//                 if matches!(state, TileState::Visible) {
+//                 	continue;
+//                 }
+//
+//                 if is_flagged {
+//                 	commands.entity(*entity).remove::<Flag>();
+//                 } else {
+//                 	commands.entity(*entity).insert(Flag);
+//                 }
+            }
+        }
+    }
+}
+
+fn primary_action(
+	entity: Entity,
+	tiles: &Query<(&TileState, &AdjacentMines, Has<Mine>, Has<Flag>), With<Tile>>,
+) {
+	let Ok((state, _, is_mine, is_flagged)) = tiles.get(entity) else {
+       	return;
+    };
+
+    match state {
+       	TileState::Hidden if is_flagged => {
+      		// ne rien faire
+       	}
+       	TileState::Hidden if is_mine => {
+      		// Reveler les mines du jeu et game over
+       	}
+       	TileState::Hidden => {
+            // Reveal the tile.
+        }
+        TileState::Visible => {
+            // Handle a click on an already revealed tile.
+            // note: Generally nothing.
+        }
+    }
+}
+
+fn primary_double_action(
+	entity: Entity,
+	tiles: &Query<(&TileState, &AdjacentMines, Has<Mine>, Has<Flag>), With<Tile>>,
+) {
+	let Ok((state, adjacent_mines, _, _)) = tiles.get(entity) else {
+       	return;
+    };
+
+    if matches!(state, TileState::Hidden) {
+       	return;
+    }
+
+    if adjacent_mines.0 == 0 {
+        return;
+    }
+
+    reveal_neighbors_tiles(entity);
+}
+
+fn secondary_action(
+	entity: Entity,
+	tiles: &Query<(&TileState, &AdjacentMines, Has<Mine>, Has<Flag>), With<Tile>>,
+	commands: &mut Commands
+) {
+	let Ok((state, _, _, is_flagged)) = tiles.get(entity) else {
+       	return;
+    };
+
+    if matches!(state, TileState::Visible) {
+       	return;
+    }
+
+    if is_flagged {
+       	commands.entity(entity).remove::<Flag>();
+    } else {
+       	commands.entity(entity).insert(Flag);
+    }
+}
+
+fn reveal_neighbors_tiles(entity: Entity) {}
 
 // Temporaire
 
