@@ -7,6 +7,7 @@ pub struct InputPlugin;
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
         app
+        .init_resource::<ClickState>()
         .add_message::<PlayerActions>()
         .add_systems(Update, mouse_input);
     }

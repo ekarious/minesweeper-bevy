@@ -13,7 +13,7 @@ impl Plugin for BoardPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Board::new(10, 10))
             .add_systems(Startup, (setup_board, plant_mines, calculate_neighbours, debug_mines, debug_neighbours).chain())
-            .add_systems(Update, handle_player_actions);
+            .add_systems(Update, (handle_player_actions, debug_flags).chain());
     }
 }
 
@@ -131,7 +131,6 @@ fn plant_mines(mut commands: Commands, board: Res<Board>) {
         commands.entity(entity).insert(Mine);
     }
 
-
     #[cfg(debug_assertions)]
     println!("Mine tiles {:?}", mines);
 }
@@ -206,13 +205,22 @@ fn primary_action(
     match state {
        	TileState::Hidden if is_flagged => {
         	// Nothing happen. Safeguard.
+
+         	#[cfg(debug_assertions)]
+         	println!("Left Click: Flag on tile. Do Nothing");
        	}
        	TileState::Hidden if is_mine => {
         	commands.entity(entity).insert(TileState::Visible);
       		next_state.set(GameState::GameOver);
+
+	       	#[cfg(debug_assertions)]
+	       	println!("Left Click: Mine on tile. Game Over");
        	}
        	TileState::Hidden => {
             commands.entity(entity).insert(TileState::Visible);
+
+            #[cfg(debug_assertions)]
+	       	println!("Left Click: No sign on tile. Turn visible");
 
             if adjacent_mines.0 == 0 {
             	reveal_neighbors_tiles(entity);
@@ -220,6 +228,9 @@ fn primary_action(
         }
         TileState::Visible => {
             // Nothing happen on an already visible tile.
+
+            #[cfg(debug_assertions)]
+	       	println!("Left Click: Tile already visible. Do nothing");
         }
     }
 }
@@ -239,6 +250,9 @@ fn primary_double_action(
     if adjacent_mines.0 == 0 {
         return;
     }
+
+    #[cfg(debug_assertions)]
+   	println!("-> AdjacentMine is {:?}: reveal neighbors starting...", adjacent_mines.0);
 
     reveal_neighbors_tiles(entity);
 }
@@ -263,9 +277,30 @@ fn secondary_action(
     }
 }
 
-fn reveal_neighbors_tiles(entity: Entity) {}
+fn reveal_neighbors_tiles(entity: Entity) {
+	#[cfg(debug_assertions)]
+	println!("TODO: reveal neighbors tiles");
+}
 
 // Temporaire
+
+fn debug_flags(mut tiles: Query<(&mut Sprite, &TileState, Has<Flag>, Has<Mine>), With<Tile>>) {
+    for (mut sprite, state, is_flagged, is_mine) in &mut tiles {
+        let color = if is_flagged {
+            Color::srgb(0.0, 1.0, 0.0)
+        } else if is_mine {
+            Color::srgb(1.0, 0.0, 0.0)
+        } else if matches!(state, TileState::Visible) {
+            Color::srgb(0.2, 0.2, 0.2)
+        } else {
+            Color::srgb(0.4, 0.4, 0.4)
+        };
+
+        if sprite.color != color {
+            sprite.color = color;
+        }
+    }
+}
 
 fn debug_mines(mut mines: Query<&mut Sprite, With<Mine>>) {
     for mut sprite in &mut mines {

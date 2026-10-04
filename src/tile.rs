@@ -15,5 +15,5 @@ pub enum TileState {
     Visible,
 }
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct AdjacentMines(pub u8);
