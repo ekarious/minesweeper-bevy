@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use rand::seq::SliceRandom;
+use std::collections::VecDeque;
 
 use crate::tile::{AdjacentMines, Flag, Mine, Tile, TileState};
 use crate::input::PlayerActions;
@@ -55,6 +56,30 @@ impl Board {
 
     pub fn get_coordinates_from_index(&self, index: usize) -> (usize, usize) {
         (index % self.width, index / self.width)
+    }
+
+    fn neighbour_indices(&self, index: usize) -> Vec<usize> {
+        let (x, y) = self.get_coordinates_from_index(index);
+        let mut neighbours = Vec::with_capacity(8);
+
+        for offset_y in -1..=1 {
+            for offset_x in -1..=1 {
+                if offset_x == 0 && offset_y == 0 {
+                    continue;
+                }
+                let Some(nx) = x.checked_add_signed(offset_x) else {
+                    continue;
+                };
+                let Some(ny) = y.checked_add_signed(offset_y) else {
+                    continue;
+                };
+                if let Some(index) = self.index_from_coordinates(nx, ny) {
+                    neighbours.push(index);
+                }
+            }
+        }
+
+        neighbours
     }
 
     pub fn grid_to_world(&self, x: usize, y: usize) -> Vec2 {
@@ -140,28 +165,13 @@ fn calculate_neighbours(
     mines: Query<(), With<Mine>>,
     mut neighbours: Query<&mut AdjacentMines, Without<Mine>>,
 ) {
-    let possibilities: [(isize, isize); 8] = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)];
-
     for (index, &entity) in board.tiles.iter().enumerate() {
         if mines.get(entity).is_err() {
             continue;
         }
 
-        let (x, y) = board.get_coordinates_from_index(index);
-
-        for (offset_x, offset_y) in possibilities {
-       		let Some(neighbour_x) = x.checked_add_signed(offset_x) else {
-                continue;
-            };
-
-            let Some(neighbour_y) = y.checked_add_signed(offset_y) else {
-                continue;
-            };
-
-            let Some(entity) = board.get(neighbour_x, neighbour_y) else {
-                continue;
-            };
-
+        for neighbour_index in board.neighbour_indices(index) {
+            let entity = board.tiles[neighbour_index];
             let Ok(mut adjacent_mines) = neighbours.get_mut(entity) else {
                 continue;
             };
@@ -174,16 +184,17 @@ fn calculate_neighbours(
 fn handle_player_actions(
 	mut commands: Commands,
 	mut actions: MessageReader<PlayerActions>,
+	board: Res<Board>,
 	tiles: Query<(&TileState, &AdjacentMines, Has<Mine>, Has<Flag>), With<Tile>>,
 	mut next_state: ResMut<NextState<GameState>>,
 ) {
     for action in actions.read() {
         match action {
             PlayerActions::Primary(entity) => {
-            	primary_action(*entity, &tiles, &mut commands, &mut next_state);
+            	primary_action(*entity, &board, &tiles, &mut commands, &mut next_state);
             }
             PlayerActions::PrimaryDouble(entity) => {
-            	primary_double_action(*entity, &tiles);
+            	primary_double_action(*entity, &board, &tiles, &mut commands, &mut next_state);
             }
             PlayerActions::Secondary(entity) => {
             	secondary_action(*entity, &tiles, &mut commands);
@@ -194,6 +205,7 @@ fn handle_player_actions(
 
 fn primary_action(
 	entity: Entity,
+	board: &Board,
 	tiles: &Query<(&TileState, &AdjacentMines, Has<Mine>, Has<Flag>), With<Tile>>,
 	commands: &mut Commands,
 	next_state: &mut NextState<GameState>,
@@ -204,8 +216,6 @@ fn primary_action(
 
     match state {
        	TileState::Hidden if is_flagged => {
-        	// Nothing happen. Safeguard.
-
          	#[cfg(debug_assertions)]
          	println!("Left Click: Flag on tile. Do Nothing");
        	}
@@ -223,12 +233,10 @@ fn primary_action(
 	       	println!("Left Click: No sign on tile. Turn visible");
 
             if adjacent_mines.0 == 0 {
-            	reveal_neighbors_tiles(entity);
+            	reveal_neighbors_tiles(entity, board, tiles, commands, next_state);
             }
         }
         TileState::Visible => {
-            // Nothing happen on an already visible tile.
-
             #[cfg(debug_assertions)]
 	       	println!("Left Click: Tile already visible. Do nothing");
         }
@@ -237,7 +245,10 @@ fn primary_action(
 
 fn primary_double_action(
 	entity: Entity,
+	board: &Board,
 	tiles: &Query<(&TileState, &AdjacentMines, Has<Mine>, Has<Flag>), With<Tile>>,
+	commands: &mut Commands,
+	next_state: &mut NextState<GameState>,
 ) {
 	let Ok((state, adjacent_mines, _, _)) = tiles.get(entity) else {
        	return;
@@ -251,10 +262,20 @@ fn primary_double_action(
         return;
     }
 
+    let Some(index) = board.tiles.iter().position(|&tile| tile == entity) else {
+        return;
+    };
+    let flags = board.neighbour_indices(index).into_iter().filter(|&index| {
+        tiles.get(board.tiles[index]).is_ok_and(|(_, _, _, is_flagged)| is_flagged)
+    }).count();
+    if flags != usize::from(adjacent_mines.0) {
+        return;
+    }
+
     #[cfg(debug_assertions)]
    	println!("-> AdjacentMine is {:?}: reveal neighbors starting...", adjacent_mines.0);
 
-    reveal_neighbors_tiles(entity);
+    reveal_neighbors_tiles(entity, board, tiles, commands, next_state);
 }
 
 fn secondary_action(
@@ -277,9 +298,43 @@ fn secondary_action(
     }
 }
 
-fn reveal_neighbors_tiles(entity: Entity) {
-	#[cfg(debug_assertions)]
-	println!("TODO: reveal neighbors tiles");
+fn reveal_neighbors_tiles(
+    entity: Entity,
+    board: &Board,
+    tiles: &Query<(&TileState, &AdjacentMines, Has<Mine>, Has<Flag>), With<Tile>>,
+    commands: &mut Commands,
+    next_state: &mut NextState<GameState>,
+) {
+    let Some(start) = board.tiles.iter().position(|&tile| tile == entity) else {
+        return;
+    };
+    let mut pending = VecDeque::from(board.neighbour_indices(start));
+    let mut visited = vec![false; board.tiles.len()];
+    visited[start] = true;
+
+    while let Some(index) = pending.pop_front() {
+        if visited[index] {
+            continue;
+        }
+        // Commands are deferred, so TileState alone cannot prevent repeat visits.
+        visited[index] = true;
+        let entity = board.tiles[index];
+        let Ok((state, adjacent_mines, is_mine, is_flagged)) = tiles.get(entity) else {
+            continue;
+        };
+        if is_flagged || matches!(state, TileState::Visible) {
+            continue;
+        }
+
+        commands.entity(entity).insert(TileState::Visible);
+        if is_mine {
+            next_state.set(GameState::GameOver);
+            return;
+        }
+        if adjacent_mines.0 == 0 {
+            pending.extend(board.neighbour_indices(index));
+        }
+    }
 }
 
 // Temporaire
@@ -326,5 +381,75 @@ fn debug_neighbours(
             Text2d::new(adjacent_mines.0.to_string()),
             Transform::from_xyz(0.0, 0.0, 1.0),
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_board(width: usize, height: usize, mines: &[usize], flags: &[usize]) -> (App, Vec<Entity>) {
+        let mut app = App::new();
+        let mut board = Board::new(width, height);
+        for index in 0..width * height {
+            let count = board.neighbour_indices(index).iter()
+                .filter(|index| mines.contains(index)).count() as u8;
+            let mut tile = app.world_mut().spawn((Tile, TileState::Hidden, AdjacentMines(count)));
+            if mines.contains(&index) {
+                tile.insert(Mine);
+            }
+            if flags.contains(&index) {
+                tile.insert(Flag);
+            }
+            board.tiles.push(tile.id());
+        }
+        let entities = board.tiles.clone();
+        app.insert_resource(board)
+            .insert_resource(NextState::<GameState>::default())
+            .add_message::<PlayerActions>()
+            .add_systems(Update, handle_player_actions);
+        (app, entities)
+    }
+
+    fn send_action(app: &mut App, action: PlayerActions) {
+        app.world_mut().resource_mut::<Messages<PlayerActions>>().write(action);
+        app.update();
+    }
+
+    fn visible(app: &App, entity: Entity) -> bool {
+        matches!(app.world().get::<TileState>(entity), Some(TileState::Visible))
+    }
+
+    #[test]
+    fn empty_region_reveals_border_numbers_but_preserves_flags_and_mines() {
+        let (mut app, entities) = test_board(4, 3, &[3, 7, 11], &[4]);
+        send_action(&mut app, PlayerActions::Primary(entities[0]));
+        for (index, &entity) in entities.iter().enumerate() {
+            assert_eq!(visible(&app, entity), ![3, 4, 7, 11].contains(&index));
+        }
+        assert!(matches!(app.world().resource::<NextState<GameState>>(), NextState::Unchanged));
+    }
+
+    #[test]
+    fn double_click_requires_matching_flags_and_reveals_safe_neighbours() {
+        let (mut app, entities) = test_board(3, 3, &[0], &[]);
+        app.world_mut().entity_mut(entities[4]).insert(TileState::Visible);
+        send_action(&mut app, PlayerActions::PrimaryDouble(entities[4]));
+        assert_eq!(entities.iter().filter(|&&entity| visible(&app, entity)).count(), 1);
+
+        app.world_mut().entity_mut(entities[0]).insert(Flag);
+        send_action(&mut app, PlayerActions::PrimaryDouble(entities[4]));
+        assert!(!visible(&app, entities[0]));
+        assert!(entities[1..].iter().all(|&entity| visible(&app, entity)));
+    }
+
+    #[test]
+    fn double_click_with_misplaced_flag_triggers_game_over() {
+        let (mut app, entities) = test_board(3, 3, &[0], &[1]);
+        app.world_mut().entity_mut(entities[4]).insert(TileState::Visible);
+        send_action(&mut app, PlayerActions::PrimaryDouble(entities[4]));
+        assert!(visible(&app, entities[0]));
+        assert!(!visible(&app, entities[1]));
+        assert!(matches!(app.world().resource::<NextState<GameState>>(), NextState::Pending(GameState::GameOver)));
     }
 }
