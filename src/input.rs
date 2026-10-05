@@ -25,11 +25,11 @@ pub enum PlayerActions {
 }
 
 #[derive(Resource, Default)]
-struct ClickState {
+pub(crate) struct ClickState {
     last_left_click: Option<(Entity, f64)>,
 }
 
-fn mouse_input(
+pub(crate) fn mouse_input(
 	buttons: Res<ButtonInput<MouseButton>>,
     window: Single<&Window>,
     board: Res<Board>,
@@ -37,7 +37,17 @@ fn mouse_input(
     mut actions: MessageWriter<PlayerActions>,
     time: Res<Time>,
     mut click_state: ResMut<ClickState>,
+    ui_interactions: Query<&Interaction>,
+    session: Res<crate::game::GameSession>,
+    mut generation: Local<u64>,
 ) {
+    if *generation != session.generation {
+        click_state.last_left_click = None;
+        *generation = session.generation;
+    }
+    if ui_interactions.iter().any(|interaction| *interaction != Interaction::None) {
+        return;
+    }
 	let primary = buttons.just_pressed(MouseButton::Left);
     let secondary = buttons.just_pressed(MouseButton::Right);
 

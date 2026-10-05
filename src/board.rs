@@ -14,7 +14,7 @@ impl Plugin for BoardPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Board::new(10, 10))
             .add_systems(Startup, (setup_board, plant_mines, calculate_neighbours, debug_mines, debug_neighbours).chain())
-            .add_systems(Update, (handle_player_actions, debug_flags).chain());
+            .add_systems(Update, (handle_player_actions.after(crate::input::mouse_input), debug_flags).chain());
     }
 }
 
@@ -58,7 +58,11 @@ impl Board {
         (index % self.width, index / self.width)
     }
 
-    fn neighbour_indices(&self, index: usize) -> Vec<usize> {
+    pub(crate) fn entities(&self) -> &[Entity] {
+        &self.tiles
+    }
+
+    pub(crate) fn neighbour_indices(&self, index: usize) -> Vec<usize> {
         let (x, y) = self.get_coordinates_from_index(index);
         let mut neighbours = Vec::with_capacity(8);
 
@@ -187,8 +191,17 @@ fn handle_player_actions(
 	board: Res<Board>,
 	tiles: Query<(&TileState, &AdjacentMines, Has<Mine>, Has<Flag>), With<Tile>>,
 	mut next_state: ResMut<NextState<GameState>>,
+	state: Res<State<GameState>>,
 ) {
+    if matches!(*next_state, NextState::Pending(GameState::Start)) {
+        actions.clear();
+        return;
+    }
     for action in actions.read() {
+        if matches!(state.get(), GameState::GameOver | GameState::Win | GameState::Paused)
+            || matches!(*next_state, NextState::Pending(GameState::GameOver | GameState::Win | GameState::Paused)) {
+            continue;
+        }
         match action {
             PlayerActions::Primary(entity) => {
             	primary_action(*entity, &board, &tiles, &mut commands, &mut next_state);
@@ -339,11 +352,17 @@ fn reveal_neighbors_tiles(
 
 // Temporaire
 
-fn debug_flags(mut tiles: Query<(&mut Sprite, &TileState, Has<Flag>, Has<Mine>), With<Tile>>) {
+fn debug_flags(
+    settings: Res<crate::ui::DebugSettings>,
+    game: Res<State<GameState>>,
+    mut tiles: Query<(&mut Sprite, &TileState, Has<Flag>, Has<Mine>), With<Tile>>,
+) {
     for (mut sprite, state, is_flagged, is_mine) in &mut tiles {
         let color = if is_flagged {
             Color::srgb(0.0, 1.0, 0.0)
-        } else if is_mine {
+        } else if is_mine && (settings.show_mines
+            || matches!(game.get(), GameState::GameOver | GameState::Win)
+            || matches!(state, TileState::Visible)) {
             Color::srgb(1.0, 0.0, 0.0)
         } else if matches!(state, TileState::Visible) {
             Color::srgb(0.2, 0.2, 0.2)
@@ -366,19 +385,15 @@ fn debug_mines(mut mines: Query<&mut Sprite, With<Mine>>) {
 fn debug_neighbours(
 	mut commands: Commands,
     board: Res<Board>,
-    neighbours: Query<&AdjacentMines, Without<Mine>>,
+    neighbours: Query<&AdjacentMines, With<Tile>>,
 ) {
 	for (_, &entity) in board.tiles.iter().enumerate() {
         let Ok(adjacent_mines) = neighbours.get(entity) else {
             continue;
         };
 
-        if adjacent_mines.0 == 0 {
-            continue;
-        }
-
         commands.entity(entity).with_child((
-            Text2d::new(adjacent_mines.0.to_string()),
+            Text2d::new(if adjacent_mines.0 > 0 { adjacent_mines.0.to_string() } else { String::new() }),
             Transform::from_xyz(0.0, 0.0, 1.0),
         ));
     }
@@ -405,6 +420,7 @@ mod tests {
         }
         let entities = board.tiles.clone();
         app.insert_resource(board)
+            .insert_resource(State::new(GameState::Start))
             .insert_resource(NextState::<GameState>::default())
             .add_message::<PlayerActions>()
             .add_systems(Update, handle_player_actions);
