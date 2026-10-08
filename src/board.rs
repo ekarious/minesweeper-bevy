@@ -13,8 +13,8 @@ const MINE_DENSITY: usize = 15;
 impl Plugin for BoardPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Board::new(10, 10))
-            .add_systems(Startup, (setup_board, plant_mines, calculate_neighbours, debug_mines, debug_neighbours).chain())
-            .add_systems(Update, (handle_player_actions.after(crate::input::mouse_input), debug_flags).chain());
+            .add_systems(Startup, (setup_board, plant_mines, calculate_neighbours).chain())
+            .add_systems(Update, handle_player_actions.after(crate::input::mouse_input));
     }
 }
 
@@ -347,55 +347,6 @@ fn reveal_neighbors_tiles(
         if adjacent_mines.0 == 0 {
             pending.extend(board.neighbour_indices(index));
         }
-    }
-}
-
-// Temporaire
-
-fn debug_flags(
-    settings: Res<crate::ui::DebugSettings>,
-    game: Res<State<GameState>>,
-    mut tiles: Query<(&mut Sprite, &TileState, Has<Flag>, Has<Mine>), With<Tile>>,
-) {
-    for (mut sprite, state, is_flagged, is_mine) in &mut tiles {
-        let color = if is_flagged {
-            Color::srgb(0.0, 1.0, 0.0)
-        } else if is_mine && (settings.show_mines
-            || matches!(game.get(), GameState::GameOver | GameState::Win)
-            || matches!(state, TileState::Visible)) {
-            Color::srgb(1.0, 0.0, 0.0)
-        } else if matches!(state, TileState::Visible) {
-            Color::srgb(0.2, 0.2, 0.2)
-        } else {
-            Color::srgb(0.4, 0.4, 0.4)
-        };
-
-        if sprite.color != color {
-            sprite.color = color;
-        }
-    }
-}
-
-fn debug_mines(mut mines: Query<&mut Sprite, With<Mine>>) {
-    for mut sprite in &mut mines {
-        sprite.color = Color::srgb(1.0, 0.0, 0.0);
-    }
-}
-
-fn debug_neighbours(
-	mut commands: Commands,
-    board: Res<Board>,
-    neighbours: Query<&AdjacentMines, With<Tile>>,
-) {
-	for (_, &entity) in board.tiles.iter().enumerate() {
-        let Ok(adjacent_mines) = neighbours.get(entity) else {
-            continue;
-        };
-
-        commands.entity(entity).with_child((
-            Text2d::new(if adjacent_mines.0 > 0 { adjacent_mines.0.to_string() } else { String::new() }),
-            Transform::from_xyz(0.0, 0.0, 1.0),
-        ));
     }
 }
 

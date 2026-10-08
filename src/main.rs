@@ -5,6 +5,8 @@ mod board;
 mod game;
 mod input;
 mod ui;
+mod visuals;
+mod debug;
 
 fn main() {
     App::new()
@@ -21,5 +23,7 @@ fn main() {
 		.add_plugins(board::BoardPlugin)
 		.add_plugins(input::InputPlugin)
 		.add_plugins(ui::UiPlugin)
+		.add_plugins(visuals::VisualsPlugin)
+		.add_plugins(debug::DebugPlugin)
 	    .run();
 }

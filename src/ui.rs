@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use rand::seq::SliceRandom;
 
 use crate::board::Board;
+use crate::debug::DebugSettings;
 use crate::game::{GameSession, GameState, update_session};
 use crate::tile::{AdjacentMines, Flag, Mine, Tile, TileState};
 
@@ -9,21 +10,9 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<DebugSettings>()
-            .add_systems(Startup, setup_ui)
+        app.add_systems(Startup, setup_ui)
             .add_systems(Update, handle_controls.before(crate::input::mouse_input))
             .add_systems(PostUpdate, update_labels.after(update_session));
-    }
-}
-
-#[derive(Resource)]
-pub(crate) struct DebugSettings {
-    pub show_mines: bool,
-}
-
-impl Default for DebugSettings {
-    fn default() -> Self {
-        Self { show_mines: false }
     }
 }
 
@@ -35,6 +24,7 @@ enum HudLabel {
     Mines,
     Status,
     MineToggle,
+    NeighbourToggle,
 }
 
 #[derive(Component, Clone, Copy, Default)]
@@ -43,6 +33,7 @@ enum DebugControl {
     NewBoard,
     Restart,
     ToggleMines,
+    ToggleNeighbours,
 }
 
 fn hud_text(label: HudLabel, value: &str) -> impl Scene + use<> {
@@ -116,6 +107,17 @@ fn setup_ui(mut commands: Commands) {
                 }
                 BackgroundColor(Color::srgb(0.18, 0.22, 0.23))
                 Children[hud_text(HudLabel::MineToggle, "[ ] Show mines")]
+            ),
+            (
+                Button template_value(DebugControl::ToggleNeighbours)
+                Node {
+                    min_width: px(180), min_height: px(36),
+                    padding: UiRect::axes(px(12), px(8)),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                }
+                BackgroundColor(Color::srgb(0.18, 0.22, 0.23))
+                Children[hud_text(HudLabel::NeighbourToggle, "[ ] Show neighbors")]
             )
         ]
     });
@@ -141,6 +143,10 @@ fn handle_controls(
         }
         if matches!(control, DebugControl::ToggleMines) {
             settings.show_mines = !settings.show_mines;
+            continue;
+        }
+        if matches!(control, DebugControl::ToggleNeighbours) {
+            settings.show_neighbours = !settings.show_neighbours;
             continue;
         }
 
@@ -182,7 +188,6 @@ fn update_labels(
     state: Res<State<GameState>>,
     tiles: Query<(&TileState, &AdjacentMines, Has<Mine>, Has<Flag>), With<Tile>>,
     mut labels: Query<(&HudLabel, &mut Text)>,
-    mut numbers: Query<(&ChildOf, &mut Text2d)>,
 ) {
     let mut mine_count = 0_i32;
     let mut flags = 0_i32;
@@ -210,23 +215,10 @@ fn update_labels(
                 "[{}] Show mines",
                 if settings.show_mines { "x" } else { " " }
             ),
-        };
-        if text.0 != value {
-            text.0 = value;
-        }
-    }
-    for (parent, mut text) in &mut numbers {
-        let Ok((tile_state, count, is_mine, is_flagged)) = tiles.get(parent.parent()) else {
-            continue;
-        };
-        let value = if !is_mine
-            && !is_flagged
-            && count.0 > 0
-            && (settings.show_mines || matches!(tile_state, TileState::Visible))
-        {
-            count.0.to_string()
-        } else {
-            String::new()
+            HudLabel::NeighbourToggle => format!(
+                "[{}] Show neighbors",
+                if settings.show_neighbours { "x" } else { " " }
+            ),
         };
         if text.0 != value {
             text.0 = value;
@@ -241,13 +233,18 @@ mod tests {
 
     fn test_app() -> App {
         let mut app = App::new();
+        app.insert_resource(crate::game::GameAssets {
+            flag: default(),
+            mine: default(),
+        });
         app.add_plugins((
             MinimalPlugins,
             bevy::state::app::StatesPlugin,
             GamePlugin,
             BoardPlugin,
+            crate::visuals::VisualsPlugin,
+            crate::debug::DebugPlugin,
         ))
-        .init_resource::<DebugSettings>()
         .add_message::<PlayerActions>()
         .add_systems(Update, handle_controls);
         app.update();
